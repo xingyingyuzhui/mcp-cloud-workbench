@@ -22,9 +22,9 @@ class ConfigTests(unittest.TestCase):
   token='test-only-android-bearer-token-0123456789';f=self.path/'android-bearer';f.write_text(token)
   for e in self.config['mac'].values():e['enabled']=True
   self.config['mac']['android']['token_file']=str(f)
-  root=self.generate();changes=json.loads((root/'hub-changes.json').read_text());self.assertEqual(len(changes['servers']),4)
+  root=self.generate();changes=json.loads((root/'hub-changes.json').read_text());self.assertEqual(len(changes['servers']),5)
   self.assertEqual(changes['servers']['mac-android']['headers']['Authorization'],'Bearer '+token)
-  self.assertEqual(len(changes['groups'][0]['servers']),3)
+  self.assertEqual(len(changes['groups'][0]['servers']),4)
  def test_external_comfy_rejected(self):
   self.config['mac']['comfyui'].update(enabled=True,upstream_url='http://example.com/mcp')
   with self.assertRaises(ValueError):self.generate()
