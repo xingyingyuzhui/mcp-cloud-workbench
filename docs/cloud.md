@@ -7,11 +7,11 @@ The reference host is Ubuntu 24.04 on OCI Ampere A1 ARM64, 4 OCPUs / 24 GB RAM w
 - JDK 17; project Gradle Wrapper; SDK platform `android-37.2`; build-tools 36.0.0 and 37.0.0.
 - Four ARM64 native tools (`aapt2`, `aidl`, `zipalign`, `split-select`) come from [Commit451/android-arm-build-tools](https://github.com/Commit451/android-arm-build-tools), checked against that release's SHA256SUMS. These are community binaries, not official Google Linux ARM64 releases. The checksums verify download consistency, not independent provenance.
 - Official SDK archives and local package metadata come from Google's repository manifest. `sdk-manifest.json` records downloaded URLs/checksums.
-- Public HTTPS GitHub Gradle projects only; no credential injection, NDK profile, arbitrary shell MCP tool, release signing or emulator on the cloud host.
+- Public HTTPS GitHub Gradle projects, or direct `.tar.gz` source uploads through MCP; no repository credential injection, NDK profile, arbitrary shell MCP tool, release signing or emulator on the cloud host.
 - 15 MCP tools: environment_info, register_project, list_projects, submit_build, list_builds, get_build_status, read_build_logs, get_artifacts, read_artifact, cancel_build, storage_status, preview_cleanup, cleanup_expired, cleanup_build, set_retention.
 - Build modes: build (`assembleDebug`), test (`testDebugUnitTest`), lint (`lintDebug`), full (all three). Additional project-specific modules are not automatically inferred. Debug builds may use Gradle's standard debug signing; there is no release key workflow.
 
-Each build executes repository-controlled Gradle code. Only give the build token to agents allowed to run code. Containers reduce exposure but are not a sandbox against kernel exploits or a substitute for a separate host for hostile tenants. The root control process manages Docker; its token is an administrative capability for this build service. Hub tokens should be scoped to `android-build`, and upstream tokens must remain private.
+Each build executes source-controlled Gradle code. Direct source uploads are capped at 100 MiB compressed, 2 GiB expanded and 20,000 files; archive paths and entry types are checked, and symlinks are rejected. Upload chunks are sequential and incomplete uploads expire after two hours. Only give the build token to agents allowed to run code. Containers reduce exposure but are not a sandbox against kernel exploits or a substitute for a separate host for hostile tenants. The root control process manages Docker; its token is an administrative capability for this build service. Hub tokens should be scoped to `android-build`, and upstream tokens must remain private.
 
 ## Storage and cleanup
 

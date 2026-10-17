@@ -1,5 +1,5 @@
 """Single-worker Android build MCP. Control state never mounted into builds."""
-import base64,hashlib,json,os,re,shutil,sqlite3,subprocess,threading,time,uuid
+import base64,binascii,hashlib,json,os,re,shutil,sqlite3,subprocess,tarfile,threading,time,uuid
 from pathlib import Path
 from contextlib import contextmanager
 from fastmcp import FastMCP
@@ -7,6 +7,7 @@ from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 ROOT=Path(os.environ.get('ANDROID_BUILD_ROOT','/opt/android-build'))
 STORE=Path(os.environ.get('ANDROID_BUILD_STORE','/srv/android-build'))
 CONTROL=ROOT/'control';CONTROL.mkdir(exist_ok=True)
+UPLOADS=CONTROL/'source-uploads';UPLOADS.mkdir(mode=0o700,exist_ok=True)
 LOCK=threading.RLock(); ACTIVE=None
 DEFAULT={'artifact_days':7,'failed_workspace_hours':24,'cache_days':14,'cache_max_gib':20,'host_free_min_gib':20,'store_free_min_gib':2,'job_timeout_minutes':30}
 POLICY=CONTROL/'policy.json';PROJECTS=CONTROL/'projects.json'
@@ -36,6 +37,32 @@ def project(i):
  p=json.loads(PROJECTS.read_text())
  if i not in p:raise ValueError('Unknown project. Register a public GitHub repository first.')
  return p[i]
+def upload_get(i):
+ if not re.fullmatch('[0-9a-f]{32}',i):raise ValueError('Invalid upload ID')
+ p=UPLOADS/(i+'.json')
+ if not p.is_file():raise ValueError('Source upload not found or expired')
+ return json.loads(p.read_text())
+def upload_put(u):
+ p=UPLOADS/(u['id']+'.json');t=p.with_suffix('.tmp');t.write_text(json.dumps(u));t.chmod(0o600);t.replace(p)
+def upload_file(u):return STORE/'uploads'/(u['id']+'.tar.gz')
+def validate_source_archive(path,expected_sha):
+ with path.open('rb') as stream:digest=hashlib.file_digest(stream,'sha256').hexdigest()
+ if digest!=expected_sha:raise ValueError('Source archive SHA256 mismatch')
+ files=0;expanded=0;has_wrapper=False
+ try:
+  with tarfile.open(path,'r:gz') as archive:
+   for member in archive:
+    name=member.name
+    parts=Path(name).parts
+    if not name or name.startswith('/') or '\\' in name or '..' in parts or member.issym() or member.islnk() or not (member.isfile() or member.isdir()):raise ValueError('Archive contains an unsafe path or unsupported file type')
+    if len(name)>1024:raise ValueError('Archive path too long')
+    if member.isfile():
+     files+=1;expanded+=member.size
+     if files>20000 or expanded>2*2**30:raise ValueError('Archive exceeds file count or expanded-size limit')
+     if Path(name).name=='gradlew':has_wrapper=True
+ except (tarfile.TarError,OSError) as e:raise ValueError('Invalid .tar.gz source archive') from e
+ if not has_wrapper:raise ValueError('Gradle wrapper (gradlew) not found in source archive')
+ return {'sha256':digest,'files':files,'expanded_bytes':expanded}
 def du(p):
  if not p.exists():return 0
  r=subprocess.run(['du','-sx','--block-size=1','--',str(p)],capture_output=True,text=True,timeout=60)
@@ -56,8 +83,13 @@ def cleanup_plan():
  for j in jobs:
   if j['status'] in ['queued','running','cancel_requested']:continue
   age=now-j.get('finished_at',j['created_at']);d=jobdir(j)
-  if (d/'workspace').exists() and age>=p['failed_workspace_hours']*3600:plan.append({'build_id':j['id'],'kind':'workspace','bytes':du(d/'workspace')})
+  if ((d/'workspace').exists() or (d/'source.tar.gz').exists()) and age>=p['failed_workspace_hours']*3600:plan.append({'build_id':j['id'],'kind':'workspace','bytes':du(d/'workspace')+du(d/'source.tar.gz')})
   if j.get('download_until',0)<=now and age>=p['artifact_days']*86400 and any((d/n).exists() for n in ['artifacts','build.log']):plan.append({'build_id':j['id'],'kind':'outputs','bytes':du(d/'artifacts')+du(d/'build.log')})
+ for meta in UPLOADS.glob('*.json'):
+  try:
+   u=json.loads(meta.read_text());f=upload_file(u)
+   if u.get('expires_at',0)<=now or now-u.get('created_at',now)>=7200:plan.append({'kind':'source_upload','upload_id':u['id'],'bytes':f.stat().st_size if f.exists() else 0})
+  except (OSError,ValueError,KeyError):continue
  if not running:
   caches=sorted((x for x in (STORE/'cache').iterdir() if x.is_dir()),key=lambda x:x.stat().st_mtime)
   total=sum(du(x) for x in caches)
@@ -74,11 +106,13 @@ def cleanup_apply(plan):
  count=0;before=shutil.disk_usage(STORE).used
  for item in plan:
   if item['kind']=='cache':rm(STORE/'cache'/item['cache'])
+  elif item['kind']=='source_upload':
+   rm(UPLOADS/(item['upload_id']+'.json'));rm(STORE/'uploads'/(item['upload_id']+'.tar.gz'))
   else:
    j=job_get(item['build_id'])
    if j['status'] in ['queued','running','cancel_requested']:continue
    d=jobdir(j)
-   if item['kind']=='workspace':rm(d/'workspace');j['workspace_cleaned']=True
+   if item['kind']=='workspace':rm(d/'workspace');rm(d/'source.tar.gz');j['workspace_cleaned']=True;j['source_cleaned']=True
    else:
     rm(d/'artifacts');rm(d/'build.log');j['outputs_cleaned']=True
    job_put(j)
@@ -131,8 +165,10 @@ def run_job(j):
   need_space();w.mkdir(parents=True,exist_ok=True);cache.mkdir(parents=True,exist_ok=True)
   os.chown(w,10001,10001);os.chown(cache,10001,10001)
   j['status']='running';j['started_at']=time.time();job_put(j);ACTIVE=j['id']
-  inp=CONTROL/(j['id']+'.json');save(inp,{k:j[k] for k in ['repository','ref','subdir','tasks']});inp.chmod(0o644)
- args=['run','--rm','--name',name,'--label','local.android-build.managed=true','--network','android-build-net','--dns','1.1.1.1','--dns','8.8.8.8','--user','10001:10001','--cpus','2','--memory','8g','--memory-swap','8g','--pids-limit','512','--cap-drop','ALL','--security-opt','no-new-privileges','--read-only','--tmpfs','/tmp:rw,nosuid,nodev,size=1g','--log-driver','none','-v',str(w)+':/workspace','-v',str(cache)+':/gradle','-v',str(STORE/'sdk')+':/opt/android-sdk:ro','-v',str(inp)+':/job-input.json:ro','-v',str(ROOT/'run_job.py')+':/run_job.py:ro',(ROOT/'image-id').read_text().strip(),'python3','/run_job.py']
+  inp=CONTROL/(j['id']+'.json');save(inp,{k:j[k] for k in ['repository','ref','subdir','tasks','source_archive','module'] if k in j});inp.chmod(0o644)
+ args=['run','--rm','--name',name,'--label','local.android-build.managed=true','--network','android-build-net','--dns','1.1.1.1','--dns','8.8.8.8','--user','10001:10001','--cpus','2','--memory','8g','--memory-swap','8g','--pids-limit','512','--cap-drop','ALL','--security-opt','no-new-privileges','--read-only','--tmpfs','/tmp:rw,nosuid,nodev,size=1g','--log-driver','none','-v',str(w)+':/workspace','-v',str(cache)+':/gradle','-v',str(STORE/'sdk')+':/opt/android-sdk:ro','-v',str(inp)+':/job-input.json:ro','-v',str(ROOT/'run_job.py')+':/run_job.py:ro']
+ if j.get('source_archive'):args+=['-v',str(d/'source.tar.gz')+':/source.tar.gz:ro']
+ args += [(ROOT/'image-id').read_text().strip(),'python3','/run_job.py']
  proc=None;thread=None;reason=None
  try:
   proc=subprocess.Popen(['docker',*args],stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
@@ -160,7 +196,7 @@ def run_job(j):
    # Do not follow source-controlled symlinks on host cleanup.
    j['finished_at']=time.time();job_put(j);inp.unlink(missing_ok=True);ACTIVE=None
    if j['status'] in ['succeeded','cancelled','timeout','storage_threshold']:
-    rm(w);j['workspace_cleaned']=True;job_put(j);trim_store()
+    rm(w);rm(d/'source.tar.gz');j['workspace_cleaned']=True;j['source_cleaned']=True;job_put(j);trim_store()
    os.utime(cache,None)
 def worker():
  while True:
@@ -195,7 +231,7 @@ mcp=FastMCP('Android Cloud Build',auth=StaticTokenVerifier(tokens={TOKEN:{'clien
 @mcp.tool()
 def environment_info()->dict:
  """Get installed Android/JDK profile and supported operations. No emulator or signing pipeline."""
- return {'host':'Linux ARM64 OCI A1','jdk':17,'sdk_platforms':['android-37.2'],'build_tools':['36.0.0','37.0.0 (ARM64 overrides)'],'gradle':'repository wrapper','concurrency':1,'cpu_limit':2,'memory_limit_gib':8,'source_support':'public GitHub repositories; immutable commit recommended','ndk_supported':False,'storage':space()}
+ return {'host':'Linux ARM64 OCI A1','jdk':17,'sdk_platforms':['android-37.2'],'build_tools':['36.0.0','37.0.0 (ARM64 overrides)'],'gradle':'repository wrapper','concurrency':1,'cpu_limit':2,'memory_limit_gib':8,'source_support':'public GitHub repositories or direct .tar.gz source upload via MCP','source_upload_max_bytes':100*2**20,'source_upload_chunk_bytes':192*1024,'source_upload_retention_hours':2,'ndk_supported':False,'storage':space()}
 @mcp.tool()
 def register_project(project_id:str,repository:str,module:str='app',subdir:str='.',default_ref:str='main')->dict:
  """Register a PUBLIC GitHub Gradle Android app. No credentials, local paths or arbitrary build commands. ARM64 Linux NDK unsupported."""
@@ -207,6 +243,59 @@ def register_project(project_id:str,repository:str,module:str='app',subdir:str='
  with LOCK:
   projects=json.loads(PROJECTS.read_text());projects[project_id]={'repository':repository,'module':module,'subdir':subdir,'default_ref':default_ref};save(PROJECTS,projects)
  return {'project_id':project_id,**projects[project_id]}
+@mcp.tool()
+def begin_source_upload(filename:str,total_bytes:int,sha256:str)->dict:
+ """Begin direct source upload. Package a project as .tar.gz; max 100 MiB, wrapper required. Uploads expire after 2 hours."""
+ if filename not in ['source.tar.gz','source.tgz']:raise ValueError('Only .tar.gz source archives are accepted')
+ if not 1<=total_bytes<=100*2**20:raise ValueError('Source archive must be 1 byte to 100 MiB')
+ if not re.fullmatch('[a-fA-F0-9]{64}',sha256):raise ValueError('Provide the archive SHA256')
+ with LOCK:
+  cleanup_apply(cleanup_plan());need_space()
+  if len(list(UPLOADS.glob('*.json')))>=4:raise ValueError('Source upload limit reached; finish or clean an existing upload')
+  i=uuid.uuid4().hex;u={'id':i,'filename':'source.tar.gz','total_bytes':total_bytes,'sha256':sha256.lower(),'received_bytes':0,'created_at':time.time(),'expires_at':time.time()+7200}
+  f=upload_file(u);f.parent.mkdir(parents=True,exist_ok=True);f.touch(mode=0o600);upload_put(u)
+  return {'upload_id':i,'chunk_bytes':192*1024,'total_bytes':total_bytes,'expires_at':u['expires_at']}
+@mcp.tool()
+def upload_source_chunk(upload_id:str,offset:int,data_base64:str)->dict:
+ """Append the next sequential base64 chunk to a source archive upload (max decoded chunk 192 KiB)."""
+ if not isinstance(data_base64,str) or len(data_base64)>4*((192*1024+2)//3):raise ValueError('Encoded chunk exceeds 192 KiB decoded limit')
+ try:data=base64.b64decode(data_base64,validate=True)
+ except (binascii.Error,ValueError) as e:raise ValueError('Invalid base64 chunk') from e
+ if not data or len(data)>192*1024:raise ValueError('Chunk must be 1 byte to 192 KiB')
+ with LOCK:
+  u=upload_get(upload_id);f=upload_file(u)
+  if u['expires_at']<=time.time():raise ValueError('Source upload expired')
+  if offset!=u['received_bytes']:raise ValueError('Chunk offset does not match next expected byte')
+  if offset+len(data)>u['total_bytes']:raise ValueError('Chunk exceeds declared archive size')
+  with f.open('ab') as stream:stream.write(data)
+  u['received_bytes']+=len(data);upload_put(u)
+  return {'upload_id':upload_id,'received_bytes':u['received_bytes'],'total_bytes':u['total_bytes'],'complete':u['received_bytes']==u['total_bytes']}
+@mcp.tool()
+def cancel_source_upload(upload_id:str)->dict:
+ """Discard an unfinished source upload."""
+ with LOCK:
+  u=upload_get(upload_id);rm(UPLOADS/(upload_id+'.json'));rm(upload_file(u));return {'upload_id':upload_id,'deleted':True}
+@mcp.tool()
+def submit_source_build(upload_id:str,module:str='app',subdir:str='.',mode:str='build',idempotency_key:str='')->dict:
+ """Validate and compile an uploaded .tar.gz source tree without GitHub. Upload must contain the Gradle wrapper. Only debug APKs; no signing or NDK."""
+ if not re.fullmatch(r'[A-Za-z0-9_-]+',module):raise ValueError('Invalid module')
+ if not re.fullmatch(r'[A-Za-z0-9_./-]+',subdir) or subdir.startswith('/') or '..' in Path(subdir).parts:raise ValueError('Invalid subdir')
+ if mode not in ['build','test','lint','full']:raise ValueError('Unknown mode')
+ if len(idempotency_key)>100:raise ValueError('Idempotency key too long')
+ with LOCK:
+  u=upload_get(upload_id);f=upload_file(u)
+  if u['expires_at']<=time.time():raise ValueError('Source upload expired')
+  if u['received_bytes']!=u['total_bytes'] or not f.is_file() or f.stat().st_size!=u['total_bytes']:raise ValueError('Source archive upload is incomplete')
+  info=validate_source_archive(f,u['sha256'])
+  existing=next((j for j in all_jobs() if idempotency_key and j.get('idempotency_key')==idempotency_key),None)
+  if existing:
+   if (existing.get('source_sha256'),existing.get('module'),existing.get('subdir'),existing.get('mode'))!=(info['sha256'],module,subdir,mode):raise ValueError('Idempotency key already used with different inputs')
+   rm(f);rm(UPLOADS/(upload_id+'.json'));return existing
+  cleanup_apply(cleanup_plan());need_space()
+  if sum(j['status'] in ['queued','running','cancel_requested'] for j in all_jobs())>=10:raise ValueError('Build queue full (10)')
+  actions={'build':[f':{module}:assembleDebug'],'test':[f':{module}:testDebugUnitTest'],'lint':[f':{module}:lintDebug'],'full':[f':{module}:testDebugUnitTest',f':{module}:lintDebug',f':{module}:assembleDebug']}
+  j={'id':uuid.uuid4().hex[:16],'project_id':'source-upload','repository':'uploaded-source','source_archive':True,'source_sha256':info['sha256'],'source_files':info['files'],'source_expanded_bytes':info['expanded_bytes'],'module':module,'subdir':subdir,'ref':'uploaded-source','mode':mode,'tasks':actions[mode],'status':'queued','created_at':time.time(),'idempotency_key':idempotency_key,'cache_key':'src-'+info['sha256'][:20],'artifacts':[]}
+  d=jobdir(j);d.mkdir(parents=True);os.replace(f,d/'source.tar.gz');(UPLOADS/(upload_id+'.json')).unlink(missing_ok=True);job_put(j);return j
 @mcp.tool()
 def list_projects()->dict:
  """List registered projects and build settings."""
@@ -282,7 +371,7 @@ def cancel_build(build_id:str)->dict:
 @mcp.tool()
 def storage_status()->dict:
  """Check hard quota, host free threshold, SDK, per-project cache and job disk usage."""
- with LOCK:return {**space(),'categories_bytes':{n:du(STORE/n) for n in ['jobs','cache','sdk']},'active_build':ACTIVE}
+ with LOCK:return {**space(),'categories_bytes':{n:du(STORE/n) for n in ['jobs','cache','sdk','uploads']},'active_build':ACTIVE}
 @mcp.tool()
 def preview_cleanup()->dict:
  """Preview automatic expiry/cache cleanup with estimated reclaimable bytes; never changes files."""
