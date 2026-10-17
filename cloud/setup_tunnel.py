@@ -5,7 +5,7 @@ from network_info import bridge
 MARKER='# Managed by mcp-cloud-workbench setup_tunnel.py\n'
 def run(*a):return subprocess.run(a,check=True,capture_output=True,text=True)
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--public-key',type=Path,required=True);p.add_argument('--user',default='mcphub-bridge');p.add_argument('--network',default='mcphub_default');p.add_argument('--ports',default='28189,28190,28192');a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--public-key',type=Path,required=True);p.add_argument('--user',default='mcphub-bridge');p.add_argument('--network',default='mcphub_default');p.add_argument('--ports',default='28189,28190,28192,28193');a=p.parse_args()
  if os.geteuid()!=0:raise ValueError('Run as root')
  if not re.fullmatch('[a-z][a-z0-9-]{0,30}',a.user):raise ValueError('Invalid dedicated username')
  ports=[int(x) for x in a.ports.split(',')]

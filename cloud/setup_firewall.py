@@ -4,7 +4,7 @@ from pathlib import Path
 from network_info import bridge
 MARKER='# Managed by mcp-cloud-workbench setup_firewall.py\n'
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--network',default='mcphub_default');p.add_argument('--ports',default='28189,28190,28192');p.add_argument('--apply',action='store_true');a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--network',default='mcphub_default');p.add_argument('--ports',default='28189,28190,28192,28193');p.add_argument('--apply',action='store_true');a=p.parse_args()
  if os.geteuid()!=0:raise ValueError('Run as root')
  if not re.fullmatch('[A-Za-z0-9_.-]+',a.network):raise ValueError('Invalid network name')
  ports=sorted(set(int(x) for x in a.ports.split(',')))

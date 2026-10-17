@@ -1,6 +1,6 @@
 # MCP Cloud Workbench
 
-把云端 Android 编译与 Mac 上的 Blender、ComfyUI、Android 模拟器 MCP 接入同一个 MCPHub，供不同 agent 按权限调用。
+把云端 Android 编译与 Mac 上的 Blender、ComfyUI、Android 模拟器 MCP 接入同一个 MCPHub，供不同 agent 按权限调用。Android 源码既可来自公开 GitHub，也可由 agent 直接通过 MCP 上传 `.tar.gz` 后编译，参见[源码上传说明](docs/android-source-upload.md)。
 
 本仓库是从一套已运行并验证的部署中提取的可配置编排与适配代码，包含云端服务、Mac 代理、反向 SSH、构建隔离和存储清理。**提取后的版本尚未在第二台全新主机上完成端到端部署验证，不承诺一键全自动安装。**
 
@@ -11,7 +11,7 @@
 | MCP 统一入口 | MCPHub 管理上游服务与客户端访问权限 |
 | 调用 Mac 本地应用 | 本地 MCP → 认证 HTTP 代理 → 反向 SSH → 云端 MCPHub |
 | Android 应用编译 | 独立 MCP 服务提交异步任务，Docker 容器运行 Gradle |
-| 存储控制 | 80 GiB 构建数据文件系统、空间准入、任务资源限制、自动回收与手动清理工具 |
+| 存储控制 | 40 GiB 构建数据文件系统（稀疏文件，位于现有系统盘）、空间准入、任务资源限制、自动回收与手动清理工具 |
 | 结果读取 | 查询状态、读取日志、下载 APK 与校验摘要 |
 
 Android 构建范围是应用编译。发布签名管理不在范围内。云端编译成功后，可以把 APK 下载到 Mac，再通过已有模拟器 MCP 安装测试；这条模拟器测试流程未包含在已完成的构建验证中。

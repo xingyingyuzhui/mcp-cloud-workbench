@@ -12,6 +12,7 @@ def render(runtime,python,output,with_forward=False):
  jobs={}
  for name in ['blender','comfyui']:
   if name in names:jobs[name+'-http']=[str(python),str(REPO/'mac'/f'{name}_http.py'),'--runtime',str(runtime)]
+ if 'android-artifact-delivery' in names:jobs['android-artifact-delivery']=[str(python),str(REPO/'mac/android_artifact_delivery.py'),'--config',str(runtime/'artifact-delivery.json')]
  if names:jobs['mac-tunnel']=[str(python),str(REPO/'mac/tunnel.py'),'reverse','--runtime',str(runtime)]
  if with_forward:jobs['hub-forward']=[str(python),str(REPO/'mac/tunnel.py'),'forward','--runtime',str(runtime)]
  expected={'local.mcp-cloud-workbench.'+n+'.plist' for n in jobs}

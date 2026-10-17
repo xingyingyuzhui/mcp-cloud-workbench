@@ -11,7 +11,7 @@
 | 操作系统 | Ubuntu 24.04 |
 | MCPHub | 1.1.5 |
 | 本地工作站 | macOS，已有 Blender、ComfyUI 与 Android 模拟器 MCP |
-| 构建数据 | 80 GiB ext4 loop 文件系统 |
+| 构建数据 | 40 GiB ext4 loop 文件系统（系统盘上的稀疏文件） |
 
 ## MCP 接入
 
