@@ -8,6 +8,8 @@
 | ComfyUI | 已有 `127.0.0.1:18189/mcp` | 本项目增加 `127.0.0.1:18191/mcp` 认证代理 → 云端 `28189` |
 | Android | 已有 `127.0.0.1:19101/mcp`，使用 bearer key 认证 | 直接复用已有 HTTP MCP → 云端 `28192` |
 
+启用 Android 与云端编译服务后，配置生成器会额外配置 `mac-apk-delivery`：Mac 自动通过 MCPHub 分块拉取云编译 APK、校验 SHA256，写入权限受限的临时文件，再调用现有 Android MCP 的本机路径安装工具。Agent 只需调用 `mac-apk-delivery-install_build_apk(build_id)`，APK 二进制不会进入对话上下文。交付使用独立的反向转发端口 `28193` → Mac loopback `19102`。
+
 若 Android MCP 只有 stdio，可自行用固定版本 [Supergateway](https://github.com/supercorp-ai/supergateway) 转成 HTTP，绑定 `127.0.0.1`、启用 API key，再填入配置。本项目不安装或启动模拟器，也不会把真机管理能力替换成未经约束的 ADB 服务。原来限定 AVD、按需启动与闲置回收的 wrapper 要继续保留。
 
 ## 生成私有配置

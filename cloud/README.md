@@ -1,6 +1,6 @@
 # Cloud deployment
 
-This is a reusable extraction of an OCI A1 deployment, not a fresh deployment tested on your host. Read [the operating notes](../docs/cloud.md) first. Commands below run on the cloud Ubuntu ARM64 host from any checkout path. They mutate the host and require root, Docker Engine with the iptables firewall backend, systemd, and outbound HTTPS. Docker installation and OCI provisioning are deliberately outside these scripts. Do not expose ports 3000, 18200 or 28189–28192 publicly.
+This is a reusable extraction of an OCI A1 deployment, not a fresh deployment tested on your host. Read [the operating notes](../docs/cloud.md) first. Commands below run on the cloud Ubuntu ARM64 host from any checkout path. They mutate the host and require root, Docker Engine with the iptables firewall backend, systemd, and outbound HTTPS. Docker installation and OCI provisioning are deliberately outside these scripts. Do not expose ports 3000, 18200 or 28189–28193 publicly.
 
 ## MCPHub
 
@@ -46,8 +46,8 @@ Create the dedicated key manually on the Mac as described in [the Mac guide](../
 
 ```bash
 sudo python3 cloud/setup_tunnel.py --public-key runtime/tunnel_ed25519.pub \
-  --network mcphub_default --user mcphub-bridge --ports 28189,28190,28192
-sudo python3 cloud/setup_firewall.py --network mcphub_default --ports 28189,28190,28192
+  --network mcphub_default --user mcphub-bridge --ports 28189,28190,28192,28193
+sudo python3 cloud/setup_firewall.py --network mcphub_default --ports 28189,28190,28192,28193
 ```
 
 Select only ports you actually enable. The SSH installer resolves the network's actual RFC1918 gateway, appends the managed key without removing unrelated keys, refuses unmanaged SSH snippets, and rolls back file changes if `sshd -t` or reload fails. The dedicated user has no shell/session/TTY/agent forwarding. Do not reuse a normal login account.

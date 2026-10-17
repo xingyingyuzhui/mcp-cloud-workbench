@@ -17,7 +17,7 @@ def generate(config,output):
  if int(c['hub_port'])!=3000:raise ValueError('This compose profile binds cloud hub_port=3000')
  output=Path(output).resolve();output.mkdir(parents=True,exist_ok=True);output.chmod(0o700)
  state=output/'secrets.json';s=json.loads(state.read_text()) if state.exists() else {}
- for key in ['admin_password','jwt_secret','android_build_upstream','android_build_agent','mac_tools_agent','blender_upstream','comfyui_upstream','blender_agent','comfyui_agent','android_agent']:
+ for key in ['admin_password','jwt_secret','android_build_upstream','android_build_agent','mac_tools_agent','artifact_delivery_service','artifact_delivery_agent','blender_upstream','comfyui_upstream','blender_agent','comfyui_agent','android_agent']:
   s.setdefault(key,secrets.token_urlsafe(36))
  s.setdefault('credential_encryption_key',base64.b64encode(secrets.token_bytes(32)).decode())
  private_json(state,s)
@@ -64,6 +64,14 @@ def generate(config,output):
   if bp in used_remote:raise ValueError('Build port collides with reverse tunnel')
   if bp!=18200:raise ValueError('Build service v0.1 binds 18200; keep port=18200')
   add_server('android-build',f'http://{gateway}:{bp}/mcp',s['android_build_upstream'],'ARM64 Android compile queue, artifacts and bounded cleanup.',s['android_build_agent'])
+  if any(f['name']=='android' for f in forwards):
+   lp,rp=19102,28193
+   if lp in used_local or rp in used_remote:raise ValueError('Android artifact delivery port collides with another service')
+   used_local.add(lp);used_remote.add(rp);forwards.append({'name':'android-artifact-delivery','remote_port':rp,'local_port':lp})
+   private_json(bridge/'artifact-delivery.json',{'build_url':f'http://127.0.0.1:{local_port}/mcp/android-build','build_token':s['android_build_agent'],'android_url':f'http://127.0.0.1:{local_port}/mcp/mac-android','android_token':s['android_agent'],'service_token':s['artifact_delivery_service'],'download_dir':'~/Library/Caches/MCPHub/android-build-apks'})
+   add_server('mac-apk-delivery',f'http://{gateway}:{rp}/mcp',s['artifact_delivery_service'],'Download an OCI Android build APK to this Mac, verify SHA256, and install it on the configured emulator.',s['artifact_delivery_agent'])
+   if groups and groups[0]['name']=='mac-tools':groups[0]['servers'].append('mac-apk-delivery')
+   clients['mac-apk-delivery']={'type':'http','url':f'http://127.0.0.1:{local_port}/mcp/mac-apk-delivery','headers':{'Authorization':'Bearer '+s['artifact_delivery_agent']}}
  private_json(output/'hub-changes.json',{'servers':servers,'groups':groups,'keys':keys})
  private_json(output/'mcp-client.json',{'mcpServers':clients})
  tunnel={k:c[k] for k in ['host','ssh_user','docker_gateway','tunnel_user','hub_port','local_hub_port']}
