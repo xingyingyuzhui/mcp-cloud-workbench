@@ -69,7 +69,7 @@ def du(p):
  return int(r.stdout.split()[0]) if r.stdout else 0
 def space():
  h=shutil.disk_usage('/');s=shutil.disk_usage(STORE);p=policy()
- return {'host_free_bytes':h.free,'store_free_bytes':s.free,'store_total_bytes':s.total,'store_used_bytes':s.used,'can_build':h.free>=p['host_free_min_gib']*2**30 and s.free>=p['store_free_min_gib']*2**30,'policy':p,'hard_limit':'80 GiB dedicated ext4 filesystem'}
+ return {'host_free_bytes':h.free,'store_free_bytes':s.free,'store_total_bytes':s.total,'store_used_bytes':s.used,'can_build':h.free>=p['host_free_min_gib']*2**30 and s.free>=p['store_free_min_gib']*2**30,'policy':p,'hard_limit':'40 GiB dedicated ext4 filesystem on the existing boot volume'}
 def need_space():
  if not space()['can_build']:raise ValueError('Storage threshold reached; clean data before submitting more builds')
 def jobdir(j):return STORE/'jobs'/j['id']

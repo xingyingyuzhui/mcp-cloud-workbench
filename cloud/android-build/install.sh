@@ -37,7 +37,7 @@ install -d -m 755 "$ROOT" "$STORE"
 if ! mountpoint -q "$STORE"; then
  [[ ! -e /var/lib/android-build-store.img ]] || { echo 'Existing unmounted store image: inspect before retry'; exit 1; }
  [[ -z "$(ls -A "$STORE")" ]] || { echo 'Store mountpoint is nonempty'; exit 1; }
- truncate -s 80G /var/lib/android-build-store.img
+ truncate -s 40G /var/lib/android-build-store.img
  chmod 600 /var/lib/android-build-store.img
  mkfs.ext4 -q -m 0 -L android-build /var/lib/android-build-store.img
  line='/var/lib/android-build-store.img /srv/android-build ext4 loop,nodev,nosuid 0 0'
@@ -48,7 +48,7 @@ fi
 python3 - "$STORE" <<'PY'
 import shutil,sys
 size=shutil.disk_usage(sys.argv[1]).total
-assert 70*2**30<size<=80*2**30,'Expected dedicated 80 GiB store filesystem'
+assert 35*2**30<size<=40*2**30,'Expected dedicated 40 GiB store filesystem on the existing boot volume'
 PY
 install -d -o 10001 -g 10001 "$STORE"/{jobs,cache,sdk,uploads}
 install -d -m 700 "$ROOT/control"
