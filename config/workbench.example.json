@@ -1,0 +1,38 @@
+{
+  "cloud": {
+    "host": "cloud.example.com",
+    "ssh_user": "ubuntu",
+    "ssh_key": "~/.ssh/oci_admin_ed25519",
+    "known_hosts_file": "~/.ssh/known_hosts",
+    "docker_network": "mcphub_default",
+    "docker_gateway": "172.18.0.1",
+    "docker_subnet": "172.18.0.0/16",
+    "hub_port": 3000,
+    "local_hub_port": 13000,
+    "tunnel_user": "mcphub-bridge",
+    "tunnel_key": "~/.ssh/mcphub_bridge_ed25519"
+  },
+  "android_build": {"enabled": true, "port": 18200},
+  "mac": {
+    "blender": {
+      "enabled": false,
+      "command": "~/Blender-Local/mcp-run-stdio",
+      "args": [],
+      "env": {},
+      "local_port": 18190,
+      "remote_port": 28190
+    },
+    "comfyui": {
+      "enabled": false,
+      "upstream_url": "http://127.0.0.1:18189/mcp",
+      "local_port": 18191,
+      "remote_port": 28189
+    },
+    "android": {
+      "enabled": false,
+      "local_port": 19101,
+      "remote_port": 28192,
+      "token_file": "~/AndroidEmulator-Local/tunnel/bearer.key"
+    }
+  }
+}

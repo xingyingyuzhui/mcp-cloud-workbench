@@ -1,0 +1,31 @@
+services:
+  mcphub:
+    image: samanhappy/mcphub:1.1.5@sha256:d73161056ba0103a3e0f96b4c48f8fc298a15a8391cfb9e0714e5800a1a387ea
+    container_name: mcphub
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:3000:3000"
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+    volumes:
+      - ./data:/app/data
+    mem_limit: 4g
+    cpus: 2
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - hub
+networks:
+  hub:
+    name: ${MCPHUB_NETWORK:-mcphub_default}
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${MCPHUB_SUBNET:-172.18.0.0/16}
+          gateway: ${MCPHUB_GATEWAY:-172.18.0.1}

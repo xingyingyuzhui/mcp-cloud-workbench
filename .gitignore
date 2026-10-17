@@ -1,0 +1,28 @@
+# Machine-local configuration and generated credentials
+/config/local.json
+/runtime/
+.env
+.env.*
+!.env.example
+**/secrets.json
+**/*private*.json
+**/mcp_settings.json
+**/known_hosts
+**/known_hosts.*
+*.pem
+*.key
+id_ed25519*
+tunnel_ed25519*
+*.keystore
+*.jks
+.oci/
+# Runtime/build data
+.venv/
+__pycache__/
+*.pyc
+*.sqlite*
+*.log
+*.apk
+*.aab
+*.img
+.DS_Store

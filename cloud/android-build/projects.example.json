@@ -1,0 +1,8 @@
+{
+  "modbus-android": {
+    "repository": "https://github.com/xingyingyuzhui/modbus_android.git",
+    "subdir": ".",
+    "default_ref": "main",
+    "module": "app"
+  }
+}
